@@ -1,0 +1,225 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronDown, ChevronRight, MoreHorizontal, Pin, Plus, Trash2 } from "lucide-react";
+import {
+  createTask, deleteSeries, deleteTask, deleteTasks, toggleComplete, togglePin,
+  updateSeries, updateTask, type TaskDraft,
+} from "@/app/actions/tasks";
+import { TaskEditorModal } from "@/components/CalendarGrid";
+import { CATEGORY_STYLES } from "@/lib/categories";
+import { addCalendarDays, formatTimeRange, fromTimeInputValue, toLocalDateString, weekdayForDate } from "@/lib/datetime";
+import { describeRule } from "@/lib/recurrence";
+import { formatRelativeDue, type RelativeDueTone } from "@/lib/relativeDate";
+import type { Task, TaskCategory, TaskUpdate } from "@/types/task";
+
+interface CategoryTaskListProps {
+  category: TaskCategory;
+  initialTasks: Task[];
+  onTasksChange: (tasks: Task[]) => void;
+  onEditSeries: (seriesTasks: Task[]) => void;
+}
+
+const TONE_CLASS: Record<RelativeDueTone, string> = {
+  none: "text-slate-400", overdue: "text-rose-600", today: "text-emerald-700",
+  soon: "text-amber-700", normal: "text-slate-500",
+};
+const WEEKDAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function sortTasks(rows: Task[]): Task[] {
+  return [...rows].sort((a, b) =>
+    (a.due_date ?? "9999-99-99").localeCompare(b.due_date ?? "9999-99-99") ||
+    (a.due_time ?? "99:99").localeCompare(b.due_time ?? "99:99") ||
+    a.title.localeCompare(b.title));
+}
+
+function Section({ title, count, open, onToggle, children }: {
+  title: string; count: number; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <section className="border-b border-slate-200 last:border-0">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-3 text-left sm:px-5">
+        {open ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+        <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-600">{title}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">{count}</span>
+      </button>
+      {open && children}
+    </section>
+  );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="px-5 pb-5 text-sm leading-6 text-slate-500">{children}</p>;
+}
+
+export function CategoryTaskList({ category, initialTasks, onTasksChange, onEditSeries }: CategoryTaskListProps) {
+  const router = useRouter();
+  const style = CATEGORY_STYLES[category];
+  const tasks = initialTasks;
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [pinned, setPinned] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sections, setSections] = useState({ pinned: true, tasks: true, completed: false, schedule: false });
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Task | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmSeries, setConfirmSeries] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  const taskRows = useMemo(() => tasks.filter((task) => task.kind === "task"), [tasks]);
+  const pinnedRows = useMemo(() => sortTasks(taskRows.filter((task) => task.is_pinned && !task.is_completed)), [taskRows]);
+  const openRows = useMemo(() => sortTasks(taskRows.filter((task) => !task.is_pinned && !task.is_completed)), [taskRows]);
+  const completedRows = useMemo(() => sortTasks(taskRows.filter((task) => task.is_completed)), [taskRows]);
+  const events = useMemo(() => sortTasks(tasks.filter((task) => task.kind === "event")), [tasks]);
+
+  const today = toLocalDateString(new Date());
+  const weekStart = addCalendarDays(today, -weekdayForDate(today));
+  const weekEnd = addCalendarDays(weekStart, 6);
+  const weeklyEvents = events.filter((task) => task.due_date && task.due_date >= weekStart && task.due_date <= weekEnd);
+  const seriesGroups = useMemo(() => {
+    const groups = new Map<string, Task[]>();
+    for (const task of weeklyEvents) {
+      const key = task.series_id ?? task.id;
+      groups.set(key, [...(groups.get(key) ?? []), task]);
+    }
+    return [...groups.entries()].map(([key, occurrences]) => ({
+      key,
+      occurrences,
+      all: tasks.filter((task) => task.series_id ? task.series_id === occurrences[0].series_id : task.id === occurrences[0].id),
+    }));
+  }, [tasks, weeklyEvents]);
+
+  const toggleSection = (key: keyof typeof sections) => setSections((current) => ({ ...current, [key]: !current[key] }));
+
+  const addTask = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim()) { setAddError("Enter a task title."); return; }
+    setBusy(true); setAddError(null);
+    const tempId = `optimistic-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const draft: TaskDraft = {
+      title: title.trim(), due_date: date || null, due_time: fromTimeInputValue(time), category,
+      course_code: null, is_pinned: pinned, is_completed: false, source: "manual", kind: "task",
+      canvas_uid: null, description: null, end_time: null, series_id: null,
+      recurrence_rule: null, series_until: null, import_batch_id: null,
+    };
+    const optimistic = { ...draft, id: tempId, created_at: now, updated_at: now } as Task;
+    onTasksChange([...tasks, optimistic]);
+    const result = await createTask(draft);
+    setBusy(false);
+    if (!result.ok) { onTasksChange(tasks); setAddError(result.error); return; }
+    onTasksChange([...tasks, result.task]);
+    setTitle(""); setDate(""); setTime(""); setPinned(false);
+    router.refresh();
+  };
+
+  const optimisticUpdate = async (row: Task, patch: TaskUpdate, action: () => ReturnType<typeof updateTask>) => {
+    const original = tasks;
+    setMutationError(null);
+    onTasksChange(tasks.map((task) => task.id === row.id ? { ...task, ...patch } : task));
+    const result = await action();
+    if (!result.ok) { onTasksChange(original); setMutationError(result.error); return; }
+    onTasksChange(original.map((task) => task.id === row.id ? result.task : task));
+    router.refresh();
+  };
+
+  const saveEdit = async (draft: TaskDraft, scope: "one" | "all"): Promise<string | null> => {
+    if (!editing) return "Task not found.";
+    const original = tasks;
+    const patch = draft as TaskUpdate;
+    const { due_date: _occurrenceDate, ...seriesPatch } = patch;
+    void _occurrenceDate;
+    onTasksChange(tasks.map((task) => {
+      if (editing.series_id && scope === "all" && task.series_id === editing.series_id) return { ...task, ...seriesPatch };
+      if (task.id === editing.id) return { ...task, ...patch, ...(editing.series_id && scope === "one" ? { series_id: null, recurrence_rule: null, series_until: null } : {}) };
+      return task;
+    }));
+    const result = editing.series_id
+      ? await updateSeries(editing.series_id, editing.id, patch, scope)
+      : await updateTask(editing.id, patch);
+    if (!result.ok) { onTasksChange(original); return result.error; }
+    const changed = new Map((result.tasks ?? [result.task]).map((task) => [task.id, task]));
+    onTasksChange(original.map((task) => changed.get(task.id) ?? task));
+    router.refresh(); return null;
+  };
+
+  const deleteEdit = async (scope: "one" | "all"): Promise<string | null> => {
+    if (!editing) return "Task not found.";
+    const original = tasks;
+    onTasksChange(tasks.filter((task) => editing.series_id && scope === "all" ? task.series_id !== editing.series_id : task.id !== editing.id));
+    const result = editing.series_id ? await deleteSeries(editing.series_id, editing.id, scope) : await deleteTask(editing.id);
+    if (!result.ok) { onTasksChange(original); return result.error; }
+    router.refresh(); return null;
+  };
+
+  const clearCompleted = async () => {
+    const original = tasks;
+    const ids = completedRows.map((task) => task.id);
+    onTasksChange(tasks.filter((task) => !ids.includes(task.id)));
+    const result = await deleteTasks(ids);
+    setConfirmClear(false);
+    if (!result.ok) { onTasksChange(original); setMutationError(result.error); return; }
+    router.refresh();
+  };
+
+  const removeSeries = async (group: { key: string; occurrences: Task[]; all: Task[] }) => {
+    const representative = group.occurrences[0];
+    const original = tasks;
+    onTasksChange(tasks.filter((task) => representative.series_id ? task.series_id !== representative.series_id : task.id !== representative.id));
+    const result = representative.series_id
+      ? await deleteSeries(representative.series_id, representative.id, "all")
+      : await deleteTask(representative.id);
+    setConfirmSeries(null);
+    if (!result.ok) { onTasksChange(original); setMutationError(result.error); return; }
+    router.refresh();
+  };
+
+  const row = (task: Task) => {
+    const due = formatRelativeDue(task.due_date, task.due_time);
+    return (
+      <div key={task.id} className="group flex items-start gap-3 border-t border-slate-100 px-4 py-3 first:border-0 sm:px-5">
+        <button type="button" onClick={() => void optimisticUpdate(task, { is_completed: !task.is_completed }, () => toggleComplete(task.id, !task.is_completed))} aria-label={`${task.is_completed ? "Reopen" : "Complete"} ${task.title}`} className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${task.is_completed ? `${style.dot} border-transparent text-white` : "border-slate-300 bg-white text-transparent hover:border-slate-500"}`}><Check className="h-3.5 w-3.5" /></button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2"><p className={`min-w-0 truncate text-sm font-semibold text-slate-900 ${task.is_completed ? "line-through opacity-55" : ""}`}>{task.title}</p>{task.course_code && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${style.soft}`}>{task.course_code}</span>}</div>
+          <p className={`mt-1 text-xs font-semibold ${TONE_CLASS[due.tone]}`}>{due.label || "No due date"}</p>
+        </div>
+        <button type="button" onClick={() => void optimisticUpdate(task, { is_pinned: !task.is_pinned }, () => togglePin(task.id, !task.is_pinned))} aria-label={`${task.is_pinned ? "Unpin" : "Pin"} ${task.title}`} className={`rounded-lg p-1.5 ${task.is_pinned ? "text-amber-600" : "text-slate-300 hover:text-slate-600"}`}><Pin className={`h-4 w-4 ${task.is_pinned ? "fill-current" : ""}`} /></button>
+        <div className="relative"><button type="button" onClick={() => setMenuId(menuId === task.id ? null : task.id)} aria-label={`More actions for ${task.title}`} aria-expanded={menuId === task.id} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="h-4 w-4" /></button>{menuId === task.id && <div className="absolute right-0 top-8 z-20 w-28 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"><button type="button" onClick={() => { setEditing(task); setMenuId(null); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100">Edit</button><button type="button" onClick={() => { setMenuId(null); void deleteEditForRow(task); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50">Delete</button></div>}</div>
+      </div>
+    );
+  };
+
+  const deleteEditForRow = async (task: Task) => {
+    const original = tasks;
+    onTasksChange(tasks.filter((item) => item.id !== task.id));
+    const result = await deleteTask(task.id);
+    if (!result.ok) { onTasksChange(original); setMutationError(result.error); return; }
+    router.refresh();
+  };
+
+  return (
+    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <form onSubmit={addTask} className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-4 backdrop-blur sm:p-5">
+        <div className="flex items-center gap-2"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${style.dot}`}><Plus className="h-4 w-4" /></span><input aria-label={`Add a ${style.label} task`} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`Add a ${style.label.toLowerCase()} task…`} className="min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold text-slate-950 outline-none placeholder:text-slate-400" /><button type="button" onClick={() => setPinned((value) => !value)} aria-pressed={pinned} aria-label="Pin new task" className={`rounded-lg p-2 ${pinned ? "bg-amber-50 text-amber-600" : "text-slate-400 hover:bg-slate-100"}`}><Pin className={`h-4 w-4 ${pinned ? "fill-current" : ""}`} /></button><button type="submit" disabled={busy || !title.trim()} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? "Adding…" : "Add"}</button></div>
+        <div className="mt-3 grid grid-cols-2 gap-2 pl-11"><label className="sr-only" htmlFor={`${category}-new-date`}>Due date</label><input id={`${category}-new-date`} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600" /><label className="sr-only" htmlFor={`${category}-new-time`}>Due time</label><input id={`${category}-new-time`} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600" /></div>
+        {addError && <p role="alert" className="mt-2 pl-11 text-xs font-semibold text-rose-600">{addError}</p>}
+      </form>
+      {mutationError && <p role="alert" className="border-b border-rose-100 bg-rose-50 px-5 py-2 text-sm font-medium text-rose-700">{mutationError}</p>}
+
+      <Section title="Pinned" count={pinnedRows.length} open={sections.pinned} onToggle={() => toggleSection("pinned")}>{pinnedRows.length ? <div>{pinnedRows.map(row)}</div> : <Empty>Pin the things that cannot slip. They will stay at the top.</Empty>}</Section>
+      <Section title="Tasks" count={openRows.length} open={sections.tasks} onToggle={() => toggleSection("tasks")}>{openRows.length ? <div>{openRows.map(row)}</div> : <Empty>No open tasks here. Add one above or enjoy the breathing room.</Empty>}</Section>
+      <Section title="Completed" count={completedRows.length} open={sections.completed} onToggle={() => toggleSection("completed")}>
+        {completedRows.length ? <div><div>{completedRows.map(row)}</div><div className="border-t border-slate-100 px-5 py-3">{confirmClear ? <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-semibold text-rose-700">Delete {completedRows.length} completed tasks?</span><button type="button" onClick={() => void clearCompleted()} className="rounded-lg bg-rose-600 px-2.5 py-1.5 font-bold text-white">Delete {completedRows.length}</button><button type="button" onClick={() => setConfirmClear(false)} className="rounded-lg px-2 py-1.5 font-semibold text-slate-500">Cancel</button></div> : <button type="button" onClick={() => setConfirmClear(true)} className="text-xs font-bold text-rose-600 hover:text-rose-700">Clear completed</button>}</div></div> : <Empty>Completed tasks will collect here, safely out of the way.</Empty>}
+      </Section>
+      <Section title="Schedule" count={weeklyEvents.length} open={sections.schedule} onToggle={() => toggleSection("schedule")}>
+        {seriesGroups.length ? <div className="space-y-3 px-4 pb-5 sm:px-5">{seriesGroups.map((group) => { const first = group.occurrences[0]; const isSeries = Boolean(first.series_id); return <article key={group.key} className={`rounded-2xl border-l-4 bg-slate-50 p-3 ${style.border}`}><div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-slate-900">{first.title}</h3><p className="mt-1 text-xs font-semibold text-slate-500">{isSeries && first.recurrence_rule ? describeRule(first.recurrence_rule) : "One-time event"}{formatTimeRange(first.due_time, first.end_time) ? ` · ${formatTimeRange(first.due_time, first.end_time)}` : ""}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => isSeries ? onEditSeries(group.all) : setEditing(first)} className="rounded-lg px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-white">{isSeries ? "Edit series" : "Edit event"}</button><button type="button" onClick={() => setConfirmSeries(group.key)} aria-label={`Delete ${isSeries ? "series" : "event"} ${first.title}`} className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></div></div><div className="mt-3 flex flex-wrap gap-2">{group.occurrences.map((occurrence) => <span key={occurrence.id} className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">{WEEKDAY_LABELS[weekdayForDate(occurrence.due_date!)]}</span>)}</div>{confirmSeries === group.key && <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 text-xs"><span className="font-semibold text-rose-700">Delete {isSeries ? `all ${group.all.length} occurrences` : "this event"}?</span><button type="button" onClick={() => void removeSeries(group)} className="rounded-lg bg-rose-600 px-2.5 py-1.5 font-bold text-white">Delete {isSeries ? "series" : "event"}</button><button type="button" onClick={() => setConfirmSeries(null)} className="font-semibold text-slate-500">Cancel</button></div>}</article>; })}</div> : <Empty>No scheduled events in this week. Add a recurring event when your routine is ready.</Empty>}
+      </Section>
+
+      {editing && <TaskEditorModal state={{ task: editing, date: editing.due_date }} scopeCategory={category} seriesCount={editing.series_id ? tasks.filter((task) => task.series_id === editing.series_id).length : 0} onClose={() => setEditing(null)} onSave={saveEdit} onDelete={deleteEdit} />}
+    </section>
+  );
+}

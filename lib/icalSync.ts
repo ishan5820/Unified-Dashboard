@@ -42,6 +42,13 @@ function normalizeCourseCode(value: string): string {
   return value.trim().replace(/\s+/g, " ").replace(/^([A-Za-z]{2,4})\s*(\d{3}[A-Za-z]?)$/i, "$1 $2").toUpperCase();
 }
 
+function calendarDate(value: DateWithTimeZone | Date, dateOnly = false): string {
+  if (dateOnly || ("dateOnly" in value && Boolean(value.dateOnly))) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  return toLocalDateString(value);
+}
+
 export function extractCourseAndTitle(summary: string): { title: string; courseCode: string | null } {
   const original = summary.trim();
   const bracket = original.match(/\s*\[([^\]]+)\]\s*$/);
@@ -62,7 +69,7 @@ function toIncoming(event: VEvent, uid: string, start: DateWithTimeZone | undefi
   const summary = text(event.summary);
   const { title, courseCode } = extractCourseAndTitle(summary);
   const isAllDay = Boolean(start?.dateOnly || event.datetype === "date");
-  const dueDate = start ? toLocalDateString(start) : null;
+  const dueDate = start ? calendarDate(start, isAllDay) : null;
   return {
     canvas_uid: uid,
     title,
@@ -85,7 +92,7 @@ function toIncoming(event: VEvent, uid: string, start: DateWithTimeZone | undefi
 }
 
 function recurrenceOverride(event: VEvent, occurrence: Date): Omit<VEvent, "recurrences"> | undefined {
-  const dateKey = toLocalDateString(occurrence);
+  const dateKey = calendarDate(occurrence, Boolean(event.start?.dateOnly || event.datetype === "date"));
   return event.recurrences?.[occurrence.toISOString()] ?? event.recurrences?.[dateKey];
 }
 
@@ -109,10 +116,11 @@ export async function parseCalendar(textBody: string, now = new Date()): Promise
       continue;
     }
     const duration = event.start && event.end ? event.end.getTime() - event.start.getTime() : null;
-    const excluded = new Set(Object.values(event.exdate ?? {}).map((date) => toLocalDateString(date as DateWithTimeZone)));
+    const allDayRecurrence = Boolean(event.start?.dateOnly || event.datetype === "date");
+    const excluded = new Set(Object.values(event.exdate ?? {}).map((date) => calendarDate(date as DateWithTimeZone, allDayRecurrence)));
     for (const occurrence of event.rrule.between(lower, upper, true)) {
       if (items.length >= 1000) { truncated = true; break; }
-      const occurrenceDate = toLocalDateString(occurrence);
+      const occurrenceDate = calendarDate(occurrence, allDayRecurrence);
       const override = recurrenceOverride(event, occurrence);
       if (excluded.has(occurrenceDate) && !override) continue;
       if (override?.status === "CANCELLED") { skipped.cancelled += 1; continue; }

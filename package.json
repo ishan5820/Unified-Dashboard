@@ -14,7 +14,8 @@
     "migrate": "node --env-file=.env.local --import tsx scripts/migrate.ts",
     "verify-env": "node --env-file=.env.local --import tsx scripts/verify-env.ts",
     "verify-stage1": "node --env-file=.env.local --import tsx scripts/verify-stage1.ts",
-    "verify-stage4": "node --import tsx scripts/verify-stage4.ts"
+    "verify-stage4": "node --import tsx scripts/verify-stage4.ts",
+    "verify-ical-sync": "node --import tsx scripts/verify-ical-sync.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",

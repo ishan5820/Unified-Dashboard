@@ -42,19 +42,24 @@ function sortDayTasks(tasks: Task[]): Task[] {
   });
 }
 
-function TaskChip({ task, onOpen }: { task: Task; onOpen: () => void }) {
+function TaskChip({ task, onOpen, subtaskLimit }: { task: Task; onOpen: () => void; subtaskLimit?: number }) {
   const style = CATEGORY_STYLES[task.category];
   const event = task.kind === "event";
   const time = event ? formatTimeRange(task.due_time, task.end_time) : task.due_time;
+  const visibleSubtasks = subtaskLimit === undefined ? task.subtasks : task.subtasks.slice(0, subtaskLimit);
+  const hiddenSubtasks = task.subtasks.length - visibleSubtasks.length;
   return (
-    <button type="button" onClick={(eventClick) => { eventClick.stopPropagation(); onOpen(); }} className={`block w-full truncate rounded-md px-1.5 py-1 text-left text-[11px] leading-4 transition hover:brightness-95 focus:z-10 ${event ? `${style.soft} border-l-[3px] ${style.border}` : style.chip} ${task.is_completed ? "opacity-45" : ""}`} title={`${task.title}${time ? ` · ${time}` : ""}`}>
-      <span className="flex min-w-0 items-center gap-1">
-        {task.is_pinned && <Pin className="h-2.5 w-2.5 shrink-0 fill-current" />}
-        {time && <span className="shrink-0 font-bold">{time}</span>}
-        {task.course_code && <span className="shrink-0 opacity-80">{task.course_code}</span>}
-        <span className={`truncate ${task.is_completed ? "line-through" : ""}`}>{task.title}</span>
-      </span>
-    </button>
+    <div className="w-full space-y-0.5">
+      <button type="button" onClick={(eventClick) => { eventClick.stopPropagation(); onOpen(); }} className={`block w-full truncate rounded-md px-1.5 py-1 text-left text-[11px] leading-4 transition hover:brightness-95 focus:z-10 ${event ? `${style.soft} border-l-[3px] ${style.border}` : style.chip} ${task.is_completed ? "opacity-45" : ""}`} title={`${task.title}${time ? ` · ${time}` : ""}`}>
+        <span className="flex min-w-0 items-center gap-1">
+          {task.is_pinned && <Pin className="h-2.5 w-2.5 shrink-0 fill-current" />}
+          {time && <span className="shrink-0 font-bold">{time}</span>}
+          {task.course_code && <span className="shrink-0 opacity-80">{task.course_code}</span>}
+          <span className={`truncate ${task.is_completed ? "line-through" : ""}`}>{task.title}</span>
+        </span>
+      </button>
+      {visibleSubtasks.length > 0 && <div className="ml-2 space-y-0.5 border-l border-slate-200 pl-1">{visibleSubtasks.map((subtask) => <button key={subtask.id} type="button" onClick={(eventClick) => { eventClick.stopPropagation(); onOpen(); }} className="flex w-full items-center gap-1 rounded-md bg-slate-50 px-1.5 py-1 text-left text-[10px] leading-3.5 text-slate-600 transition hover:bg-slate-100" title={subtask.title}><span className={`flex h-3 w-3 shrink-0 items-center justify-center rounded-[3px] border ${subtask.is_completed ? `${style.dot} border-transparent text-white` : "border-slate-300 bg-white text-transparent"}`}><Check className="h-2.5 w-2.5" /></span><span className={`truncate ${subtask.is_completed ? "line-through opacity-55" : ""}`}>{subtask.title}</span></button>)}{hiddenSubtasks > 0 && <button type="button" onClick={(eventClick) => { eventClick.stopPropagation(); onOpen(); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[10px] font-bold text-slate-400 hover:bg-slate-50">+{hiddenSubtasks} more subtask{hiddenSubtasks === 1 ? "" : "s"}</button>}</div>}
+    </div>
   );
 }
 
@@ -293,7 +298,7 @@ export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultVi
             const currentMonth = view === "week" || isSameMonth(day, anchor); const today = isSameDay(day, parseCalendarDate(todayKey));
             return <div key={key} role="button" tabIndex={0} aria-label={`Add task on ${format(day, "MMMM d, yyyy")}`} onClick={() => setEditor({ task: null, date: key })} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditor({ task: null, date: key }); } }} className={`relative border-b border-r border-slate-100 p-1.5 text-left focus:z-10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-slate-900 ${view === "week" ? "min-h-64 sm:min-h-80" : variant === "compact" ? "min-h-24" : "min-h-28 sm:min-h-32"} ${currentMonth ? "bg-white" : "bg-slate-50/70"}`}>
               <div className="mb-1 flex items-center justify-between"><span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-xs font-bold ${today ? "bg-slate-950 text-white ring-4 ring-slate-200" : currentMonth ? "text-slate-700" : "text-slate-300"}`}>{format(day, "d")}</span>{dayTasks.length === 0 && <CalendarPlus className="h-3.5 w-3.5 text-slate-200" />}</div>
-              <div className="space-y-1">{visibleTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} />)}{overflow > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); setDetailDate(detailDate === key ? null : key); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-bold text-slate-500 hover:bg-slate-100">+{overflow} more</button>}</div>
+              <div className="space-y-1">{visibleTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} subtaskLimit={view === "month" ? 2 : undefined} />)}{overflow > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); setDetailDate(detailDate === key ? null : key); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-bold text-slate-500 hover:bg-slate-100">+{overflow} more</button>}</div>
               {detailDate === key && <div className="absolute left-2 top-10 z-30 w-64 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold text-slate-900">{format(day, "EEEE, MMM d")}</p><button type="button" onClick={() => setDetailDate(null)} aria-label="Close day details"><X className="h-4 w-4 text-slate-400" /></button></div><div className="max-h-56 space-y-1 overflow-y-auto">{dayTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => { setDetailDate(null); setDetailsTask(task); }} />)}</div></div>}
             </div>;
           })}</div>

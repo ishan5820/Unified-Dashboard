@@ -4,7 +4,7 @@ import { addCalendarDays, toLocalDateString, toLocalTimeString } from "@/lib/dat
 import { findMatch } from "@/lib/matchTasks";
 import type { NewTask, Task } from "@/types/task";
 
-export interface SyncDiff { field: "title" | "description" | "due_date" | "due_time" | "canvas_uid" | "source"; from: string | null; to: string | null }
+export interface SyncDiff { field: "title" | "description" | "due_date" | "due_time" | "location" | "canvas_uid" | "source"; from: string | null; to: string | null }
 export type IncomingTask = NewTask & { canvas_uid: string };
 export interface SyncAction {
   actionId: string;
@@ -69,6 +69,7 @@ function toIncoming(event: VEvent, uid: string, start: DateWithTimeZone | undefi
     description: text(event.description) || null,
     due_date: dueDate,
     due_time: start && !isAllDay ? toLocalTimeString(start) : null,
+    location: text(event.location) || null,
     category: "classes",
     course_code: courseCode,
     is_pinned: false,
@@ -137,12 +138,13 @@ export function digest(value: unknown): string {
   return createHash("sha256").update(stable(value)).digest("hex");
 }
 
-const canvasFields = ["title", "description", "due_date", "due_time"] as const;
+const canvasFields = ["title", "description", "due_date", "due_time", "location"] as const;
 
 function canvasDiff(existing: Task, incoming: IncomingTask): SyncDiff[] {
   return canvasFields.flatMap((field) => {
     if (field === "description" && !incoming.description) return [];
-    return existing[field] === incoming[field] ? [] : [{ field, from: existing[field], to: incoming[field] }];
+    const incomingValue = incoming[field] ?? null;
+    return existing[field] === incomingValue ? [] : [{ field, from: existing[field], to: incomingValue }];
   });
 }
 
@@ -209,6 +211,7 @@ export function applyActionToRow(action: SyncAction): NewTask | (NewTask & { id:
     description,
     due_date: action.incoming.due_date,
     due_time: action.incoming.due_time,
+    location: action.incoming.location,
     canvas_uid: action.type === "adopt" ? action.incoming.canvas_uid : existing.canvas_uid,
     source: action.type === "adopt" ? "ical" : existing.source,
   };

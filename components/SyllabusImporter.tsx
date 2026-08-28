@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, DatabaseBackup, FileJson, FileText, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, DatabaseBackup, FileJson, FileText, FileUp, RotateCcw, X } from "lucide-react";
 import {
   bulkCreateTasks, deleteImportBatch, getAllTasks, updateTask, type TaskDraft,
 } from "@/app/actions/tasks";
 import { CATEGORY_ORDER, CATEGORY_STYLES } from "@/lib/categories";
 import { fromTimeInputValue, isCalendarDate, toTimeInputValue } from "@/lib/datetime";
 import { findMatch, type MatchResult } from "@/lib/matchTasks";
+import { extractPdfText } from "@/lib/extractPdfText";
 import { parseSyllabus } from "@/lib/parseSyllabus";
 import { isTaskCategory, isTaskKind, isTaskSource, type Task, type TaskCategory } from "@/types/task";
 
@@ -53,11 +54,23 @@ function jsonTask(value: unknown, fallbackCategory: TaskCategory): TaskDraft | n
   const source = isTaskSource(row.source) ? row.source : "manual";
   const dueDate = typeof row.due_date === "string" && isCalendarDate(row.due_date) ? row.due_date : null;
   const seriesUntil = typeof row.series_until === "string" && isCalendarDate(row.series_until) ? row.series_until : null;
+  const subtasks = Array.isArray(row.subtasks) ? row.subtasks.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const subtask = value as Record<string, unknown>;
+    if (typeof subtask.title !== "string" || !subtask.title.trim()) return [];
+    return [{
+      id: typeof subtask.id === "string" ? subtask.id : crypto.randomUUID(),
+      title: subtask.title.trim(),
+      is_completed: Boolean(subtask.is_completed),
+      created_at: typeof subtask.created_at === "string" ? subtask.created_at : new Date().toISOString(),
+    }];
+  }) : [];
   return {
     title: row.title.trim(),
     description: typeof row.description === "string" ? row.description : null,
     due_date: dueDate,
     due_time: typeof row.due_time === "string" ? row.due_time : null,
+    location: typeof row.location === "string" ? row.location : null,
     category,
     course_code: typeof row.course_code === "string" ? row.course_code : null,
     is_pinned: Boolean(row.is_pinned),
@@ -70,12 +83,14 @@ function jsonTask(value: unknown, fallbackCategory: TaskCategory): TaskDraft | n
     recurrence_rule: typeof row.recurrence_rule === "string" ? row.recurrence_rule : null,
     series_until: seriesUntil,
     import_batch_id: null,
+    subtasks,
   };
 }
 
 export function SyllabusImporter({ open, onClose, initialCategory = "classes", existingTasks = [], onImported, onUndone }: SyllabusImporterProps) {
   const [tab, setTab] = useState<"syllabus" | "backup">("syllabus");
   const [sourceText, setSourceText] = useState("");
+  const [pdfName, setPdfName] = useState<string | null>(null);
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [jsonRows, setJsonRows] = useState<TaskDraft[]>([]);
   const [jsonName, setJsonName] = useState<string | null>(null);
@@ -95,13 +110,13 @@ export function SyllabusImporter({ open, onClose, initialCategory = "classes", e
     return result.tasks;
   };
 
-  const previewText = async () => {
+  const previewText = async (text = sourceText) => {
     setError(null); setSummary(null);
-    if (!sourceText.trim()) { setError("Paste at least one syllabus line."); return; }
+    if (!text.trim()) { setError("Paste at least one syllabus line."); return; }
     setBusy(true);
     try {
       const existing = await loadExisting();
-      const parsed = parseSyllabus(sourceText);
+      const parsed = parseSyllabus(text);
       if (!parsed.length) { setError("No non-empty lines were found."); return; }
       setRows(parsed.map((row) => {
         const match = findMatch(taskCandidate({ ...row, category: initialCategory }), existing);
@@ -114,6 +129,18 @@ export function SyllabusImporter({ open, onClose, initialCategory = "classes", e
       }));
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not prepare the preview."); }
     finally { setBusy(false); }
+  };
+
+  const loadPdf = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setError(null); setSummary(null); setRows([]); setPdfName(file.name);
+    try {
+      const text = await extractPdfText(file);
+      setSourceText(text);
+      await previewText(text);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not read this PDF.");
+    } finally { setBusy(false); }
   };
 
   const updateRow = (key: string, patch: Partial<PreviewRow>) => {
@@ -136,6 +163,7 @@ export function SyllabusImporter({ open, onClose, initialCategory = "classes", e
       const result = await bulkCreateTasks(newRows.map((row) => ({
         title: row.title, description: null, due_date: row.dueDate,
         due_time: row.dueTime, category: row.category, course_code: null,
+        location: null,
         is_pinned: false, is_completed: false, source: "manual", kind: "task",
         canvas_uid: null, end_time: null, series_id: null, recurrence_rule: null,
         series_until: null, import_batch_id: batchId,
@@ -210,7 +238,12 @@ export function SyllabusImporter({ open, onClose, initialCategory = "classes", e
           {error && <p role="alert" className="mb-5 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p>}
 
           {tab === "syllabus" ? <>
-            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><label className="block"><span className="text-sm font-bold text-slate-800">Paste syllabus assignments</span><textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={7} placeholder={'- Mar 3 — Essay draft\n2. Mon 3/10 7:00 PM — Problem Set 4\n• Reading response (date TBA)'} className="mt-2 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm leading-6" /></label><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-slate-500">Undated lines are kept and flagged for review.</p><button type="button" onClick={() => void previewText()} disabled={busy || !sourceText.trim()} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-45">{busy ? "Checking…" : "Preview rows"}</button></div></section>
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-4 sm:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)]">
+                <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/60 p-5 text-center"><FileUp className="mx-auto h-8 w-8 text-emerald-700" /><p className="mt-2 text-sm font-bold text-emerald-950">Upload syllabus PDF</p><p className="mt-1 text-xs leading-5 text-emerald-700">Text is extracted on this device, then opened in the same editable preview.</p><label className="mt-4 inline-flex cursor-pointer rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm"><input type="file" accept="application/pdf,.pdf" onChange={(event) => void loadPdf(event.target.files?.[0])} className="sr-only" />{busy ? "Reading PDF…" : "Choose PDF"}</label>{pdfName && <p className="mt-2 truncate text-xs font-semibold text-emerald-800">{pdfName}</p>}</div>
+                <label className="block"><span className="text-sm font-bold text-slate-800">Or paste syllabus text</span><textarea value={sourceText} onChange={(event) => { setSourceText(event.target.value); setPdfName(null); }} rows={8} placeholder={'- Mar 3 — Essay draft\n2. Mon 3/10 7:00 PM — Problem Set 4\n• Reading response (date TBA)'} className="mt-2 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm leading-6" /></label>
+              </div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-slate-500">Undated lines are kept and flagged for review. Scanned PDFs need OCR first.</p><button type="button" onClick={() => void previewText()} disabled={busy || !sourceText.trim()} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-45">{busy ? "Checking…" : "Preview rows"}</button></div>
+            </section>
 
             {rows.length > 0 && <section className="mt-5"><div className="mb-3 flex items-center justify-between"><div><h3 className="text-lg font-bold text-slate-950">Editable preview</h3><p className="text-xs text-slate-500">Canvas matches stay excluded unless you choose description-only.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{rows.filter((row) => row.include).length} selected</span></div><div className="overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[980px] text-left text-sm"><thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Include</th><th className="px-3 py-3">Title</th><th className="px-3 py-3">Date</th><th className="px-3 py-3">Time</th><th className="px-3 py-3">Category</th><th className="px-3 py-3">Review</th></tr></thead><tbody>{rows.map((row) => <tr key={row.key} className="border-t border-slate-100 align-top"><td className="px-3 py-3"><input type="checkbox" checked={row.include} onChange={(event) => updateRow(row.key, { include: event.target.checked })} aria-label={`Include ${row.title}`} className="h-4 w-4 accent-emerald-600" /></td><td className="px-3 py-3"><input value={row.title} onChange={(event) => updateRow(row.key, { title: event.target.value })} aria-label={`Title for ${row.title}`} className="w-full min-w-56 rounded-lg border border-slate-200 px-2.5 py-2" /></td><td className="px-3 py-3"><input type="date" value={row.dueDate ?? ""} onChange={(event) => updateRow(row.key, { dueDate: event.target.value || null })} aria-label={`Date for ${row.title}`} className="rounded-lg border border-slate-200 px-2.5 py-2" /></td><td className="px-3 py-3"><input type="time" value={toTimeInputValue(row.dueTime)} onChange={(event) => updateRow(row.key, { dueTime: fromTimeInputValue(event.target.value) })} aria-label={`Time for ${row.title}`} className="rounded-lg border border-slate-200 px-2.5 py-2" /></td><td className="px-3 py-3"><select value={row.category} onChange={(event) => updateRow(row.key, { category: event.target.value as TaskCategory })} aria-label={`Category for ${row.title}`} className="rounded-lg border border-slate-200 px-2.5 py-2">{CATEGORY_ORDER.map((category) => <option key={category} value={category}>{CATEGORY_STYLES[category].label}</option>)}</select></td><td className="w-64 px-3 py-3">{row.match?.confidence === "high" ? <div><span className="inline-flex rounded-full bg-orange-50 px-2 py-1 text-[11px] font-bold text-orange-700">Already in Canvas</span><p className="mt-1 text-xs text-slate-500">Parsed {row.dueDate ?? "no date"} · Existing {row.match.row.due_date ?? "no date"}</p><select value={row.duplicateMode} onChange={(event) => { const mode = event.target.value as "skip" | "description"; updateRow(row.key, { duplicateMode: mode, include: mode === "description" }); }} aria-label={`Duplicate action for ${row.title}`} className="mt-2 w-full rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-xs"><option value="skip">Skip Canvas match</option><option value="description">Update description only</option></select></div> : row.match?.confidence === "low" ? <div><span className="inline-flex rounded-full bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">Possible duplicate</span><p className="mt-1 text-xs text-slate-500">Similar to “{row.match.row.title}”</p></div> : row.parseConfidence === "low" ? <span className="inline-flex rounded-full bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-700">Check date</span> : <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">Ready</span>}</td></tr>)}</tbody></table></div><div className="mt-4 flex justify-end"><button type="button" onClick={() => void importPreview()} disabled={busy || !rows.some((row) => row.include)} className="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-45">{busy ? "Importing…" : `Import ${rows.filter((row) => row.include).length} selected`}</button></div></section>}
           </> : <section className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><DatabaseBackup className="mx-auto h-10 w-10 text-slate-400" /><h3 className="mt-3 text-lg font-bold text-slate-950">Restore a JSON backup</h3><p className="mx-auto mt-1 max-w-lg text-sm leading-6 text-slate-500">Choose a file created by Export data. You will see the row count before restoring it.</p><label className="mt-5 inline-flex cursor-pointer rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm ring-1 ring-slate-300"><input type="file" accept="application/json,.json" onChange={(event) => void loadJson(event.target.files?.[0])} className="sr-only" />Choose JSON file</label>{jsonName && <p className="mt-3 text-sm font-semibold text-slate-700">{jsonName} · {jsonRows.length} valid rows</p>}{jsonRows.length > 0 && <button type="button" onClick={() => void restoreJson()} disabled={busy} className="mt-4 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-45">{busy ? "Restoring…" : `Restore ${jsonRows.length} rows`}</button>}</section>}

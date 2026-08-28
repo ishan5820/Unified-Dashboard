@@ -3,6 +3,13 @@ export type TaskSource = "manual" | "ical";
 export type TaskKind = "task" | "event";
 export type Weekday = "SU" | "MO" | "TU" | "WE" | "TH" | "FR" | "SA";
 
+export interface Subtask {
+  id: string;
+  title: string;
+  is_completed: boolean;
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   canvas_uid: string | null;
@@ -10,6 +17,7 @@ export interface Task {
   description: string | null;
   due_date: string | null;
   due_time: string | null;
+  location: string | null;
   category: TaskCategory;
   course_code: string | null;
   is_pinned: boolean;
@@ -21,15 +29,21 @@ export interface Task {
   recurrence_rule: string | null;
   series_until: string | null;
   import_batch_id: string | null;
+  subtasks: Subtask[];
   created_at: string;
   updated_at: string;
 }
 
-export type NewTask = Omit<Task, "id" | "created_at" | "updated_at">;
+export type NewTask = Omit<Task, "id" | "created_at" | "updated_at" | "subtasks" | "location"> & {
+  subtasks?: Subtask[];
+  location?: string | null;
+};
 export type TaskUpdate = Partial<Omit<Task, "id" | "created_at">>;
 
 export interface RecurrenceSpec {
   title: string;
+  description?: string | null;
+  location?: string | null;
   category: TaskCategory;
   courseCode: string | null;
   kind: TaskKind;
@@ -43,8 +57,8 @@ export interface RecurrenceSpec {
 
 type TasksTable = {
   Row: Task & Record<string, unknown>;
-  Insert: Omit<NewTask, "canvas_uid" | "description" | "due_date" | "due_time" | "course_code" | "end_time" | "series_id" | "recurrence_rule" | "series_until" | "import_batch_id"> &
-    Partial<Pick<NewTask, "canvas_uid" | "description" | "due_date" | "due_time" | "course_code" | "end_time" | "series_id" | "recurrence_rule" | "series_until" | "import_batch_id">> & Record<string, unknown>;
+  Insert: Omit<NewTask, "canvas_uid" | "description" | "due_date" | "due_time" | "location" | "course_code" | "end_time" | "series_id" | "recurrence_rule" | "series_until" | "import_batch_id" | "subtasks"> &
+    Partial<Pick<NewTask, "canvas_uid" | "description" | "due_date" | "due_time" | "location" | "course_code" | "end_time" | "series_id" | "recurrence_rule" | "series_until" | "import_batch_id" | "subtasks">> & Record<string, unknown>;
   Update: TaskUpdate & Record<string, unknown>;
   Relationships: [];
 };

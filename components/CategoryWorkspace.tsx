@@ -73,7 +73,7 @@ export function CategoryWorkspace({ category, initialTasks }: CategoryWorkspaceP
             <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600"><ListTodo className="h-4 w-4" />{open} open</div>
             <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold ${overdue ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-500"}`}><CircleAlert className="h-4 w-4" />{overdue} overdue</div>
             <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" />{completed} completed</div>
-            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm"><FileUp className="h-4 w-4 text-emerald-600" />Import syllabus</button>
+            {category === "classes" && <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm"><FileUp className="h-4 w-4 text-emerald-600" />Import syllabus</button>}
             <button type="button" onClick={() => { setSeriesToEdit([]); setRecurringOpen(true); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm ${style.dot}`}><Plus className="h-4 w-4" />Add recurring</button>
           </div>
         </div>
@@ -90,7 +90,7 @@ export function CategoryWorkspace({ category, initialTasks }: CategoryWorkspaceP
       </div>
 
       {recurringOpen && <RecurringEventModal key={`${category}-${seriesToEdit[0]?.series_id ?? "new"}`} open onClose={closeRecurring} initialCategory={category} lockCategory existingSeries={seriesToEdit} onChanged={handleSeriesChanged} />}
-      {importOpen && <SyllabusImporter open onClose={() => setImportOpen(false)} initialCategory={category} existingTasks={tasks} onImported={handleImported} onUndone={(batchId) => setTasks((current) => current.filter((task) => task.import_batch_id !== batchId))} />}
+      {category === "classes" && importOpen && <SyllabusImporter open onClose={() => setImportOpen(false)} initialCategory="classes" existingTasks={tasks} onImported={handleImported} onUndone={(batchId) => setTasks((current) => current.filter((task) => task.import_batch_id !== batchId))} />}
     </main>
   );
 }

@@ -6,7 +6,7 @@ import {
   addDays, addMonths, addWeeks, eachDayOfInterval, endOfWeek, format, isSameDay,
   isSameMonth, startOfMonth, startOfWeek, subMonths, subWeeks,
 } from "date-fns";
-import { CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Pin, Trash2, X } from "lucide-react";
+import { AlignLeft, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, MapPin, Pencil, Pin, Trash2, X } from "lucide-react";
 import { createTask, deleteSeries, deleteTask, updateSeries, updateTask, type TaskDraft } from "@/app/actions/tasks";
 import { CATEGORY_ORDER, CATEGORY_STYLES } from "@/lib/categories";
 import { formatTimeRange, fromTimeInputValue, toLocalDateString, toTimeInputValue } from "@/lib/datetime";
@@ -55,6 +55,27 @@ function TaskChip({ task, onOpen }: { task: Task; onOpen: () => void }) {
   );
 }
 
+function TaskDetailsModal({ task, onClose, onEdit }: { task: Task; onClose: () => void; onEdit: () => void }) {
+  const style = CATEGORY_STYLES[task.category];
+  const dateLabel = task.due_date ? format(parseCalendarDate(task.due_date), "EEEE, MMMM d, yyyy") : "No date";
+  const timeLabel = task.kind === "event" ? formatTimeRange(task.due_time, task.end_time) : task.due_time;
+  const completedSubtasks = task.subtasks.filter((subtask) => subtask.is_completed).length;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="task-details-title" className="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+        <header className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${style.soft}`}>{CATEGORY_STYLES[task.category].label}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold capitalize text-slate-500">{task.kind}</span>{task.is_pinned && <Pin className="h-4 w-4 fill-amber-500 text-amber-500" />}</div><h2 id="task-details-title" className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{task.title}</h2>{task.course_code && <p className="mt-1 text-sm font-bold text-slate-500">{task.course_code}</p>}</div><div className="flex shrink-0 items-center gap-1"><button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white"><Pencil className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={onClose} aria-label="Close details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div></header>
+        <div className="mt-6 space-y-3">
+          <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><CalendarDays className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Date</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{dateLabel}</p></div></div>
+          <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><Clock3 className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Time</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{timeLabel || "No time"}</p></div></div>
+          {task.kind === "event" && <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><MapPin className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Location</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{task.location || "No location added"}</p></div></div>}
+          <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><AlignLeft className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Notes</p><p className="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-slate-700">{task.description || "No notes added"}</p></div></div>
+          {task.kind === "task" && task.subtasks.length > 0 && <div className="rounded-2xl border border-slate-200 p-3"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Subtasks · {completedSubtasks}/{task.subtasks.length}</p><ul className="mt-2 space-y-2">{task.subtasks.map((subtask) => <li key={subtask.id} className={`flex items-center gap-2 text-sm ${subtask.is_completed ? "text-slate-400 line-through" : "text-slate-700"}`}><span className={`h-2 w-2 rounded-full ${subtask.is_completed ? "bg-emerald-500" : "bg-slate-300"}`} />{subtask.title}</li>)}</ul></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, onSave, onDelete }: {
   state: NonNullable<EditorState>;
   scopeCategory?: TaskCategory;
@@ -70,6 +91,8 @@ export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, on
   const [category, setCategory] = useState<TaskCategory>(scopeCategory ?? existing?.category ?? "classes");
   const [pinned, setPinned] = useState(existing?.is_pinned ?? false);
   const [completed, setCompleted] = useState(existing?.is_completed ?? false);
+  const [location, setLocation] = useState(existing?.location ?? "");
+  const [description, setDescription] = useState(existing?.description ?? "");
   const [scope, setScope] = useState<"one" | "all">("one");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -81,8 +104,9 @@ export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, on
     if (!title.trim()) { setError("Title is required."); return; }
     setBusy(true); setError(null);
     const result = await onSave({
-      title: title.trim(), description: existing?.description ?? null, due_date: date || null,
+      title: title.trim(), description: description.trim() || null, due_date: date || null,
       due_time: fromTimeInputValue(time), category: scopeCategory ?? category,
+      location: location.trim() || null,
       course_code: existing?.course_code ?? null, is_pinned: pinned,
       is_completed: existing?.kind === "event" ? false : completed,
       source: existing?.source ?? "manual", kind: existing?.kind ?? "task",
@@ -108,6 +132,8 @@ export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, on
         <form onSubmit={submit} className="mt-5 space-y-4">
           <label className="block"><span className="text-sm font-semibold text-slate-700">Title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100" /></label>
           <div className="grid grid-cols-2 gap-3"><label><span className="text-sm font-semibold text-slate-700">Date</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label><label><span className="text-sm font-semibold text-slate-700">Time</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label></div>
+          {existing?.kind === "event" && <label className="block"><span className="text-sm font-semibold text-slate-700">Location</span><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Room, building, or link" className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label>}
+          <label className="block"><span className="text-sm font-semibold text-slate-700">Notes</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Add details or preparation notes" className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 px-3 py-2.5 text-sm leading-6" /></label>
           <div><span className="text-sm font-semibold text-slate-700">Category</span>{scopeCategory ? <div className={`mt-1.5 inline-flex rounded-full px-3 py-1.5 text-sm font-semibold ${CATEGORY_STYLES[scopeCategory].soft}`}>{CATEGORY_STYLES[scopeCategory].label}</div> : <select value={category} onChange={(event) => setCategory(event.target.value as TaskCategory)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{CATEGORY_ORDER.map((item) => <option key={item} value={item}>{CATEGORY_STYLES[item].label}</option>)}</select>}</div>
           <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setPinned((value) => !value)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}><Pin className={`h-4 w-4 ${pinned ? "fill-current" : ""}`} />Pinned</button>{existing?.kind !== "event" && <button type="button" onClick={() => setCompleted((value) => !value)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${completed ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-600"}`}><Check className="h-4 w-4" />Completed</button>}</div>
           {isSeries && <fieldset className="rounded-2xl border border-violet-200 bg-violet-50 p-3"><legend className="px-1 text-sm font-bold text-violet-950">Apply to</legend><div className="mt-2 grid grid-cols-2 gap-2">{(["one", "all"] as const).map((value) => <label key={value} className={`cursor-pointer rounded-xl border p-3 text-sm ${scope === value ? "border-violet-500 bg-white font-semibold text-violet-950" : "border-transparent text-violet-700"}`}><input type="radio" name="series-scope" value={value} checked={scope === value} onChange={() => setScope(value)} className="mr-2 accent-violet-600" />{value === "one" ? "This occurrence" : `All ${seriesCount} occurrences`}</label>)}</div><p className="mt-2 text-xs text-violet-700">Editing one occurrence detaches it from future series updates.</p></fieldset>}
@@ -130,6 +156,7 @@ export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultVi
   const [localTasks, setLocalTasks] = useState(tasks);
   const [previousTasks, setPreviousTasks] = useState(tasks);
   const [editor, setEditor] = useState<EditorState>(null);
+  const [detailsTask, setDetailsTask] = useState<Task | null>(null);
   const [detailDate, setDetailDate] = useState<string | null>(null);
   const [unscheduledOpen, setUnscheduledOpen] = useState(true);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -223,16 +250,17 @@ export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultVi
             const currentMonth = view === "week" || isSameMonth(day, anchor); const today = isSameDay(day, parseCalendarDate(todayKey));
             return <div key={key} role="button" tabIndex={0} aria-label={`Add task on ${format(day, "MMMM d, yyyy")}`} onClick={() => setEditor({ task: null, date: key })} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditor({ task: null, date: key }); } }} className={`relative min-h-28 border-b border-r border-slate-100 p-1.5 text-left focus:z-10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-slate-900 ${variant === "compact" ? "min-h-24" : "sm:min-h-32"} ${currentMonth ? "bg-white" : "bg-slate-50/70"}`}>
               <div className="mb-1 flex items-center justify-between"><span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-xs font-bold ${today ? "bg-slate-950 text-white ring-4 ring-slate-200" : currentMonth ? "text-slate-700" : "text-slate-300"}`}>{format(day, "d")}</span>{dayTasks.length === 0 && <CalendarPlus className="h-3.5 w-3.5 text-slate-200" />}</div>
-              <div className="space-y-1">{dayTasks.slice(0, visibleLimit).map((task) => <TaskChip key={task.id} task={task} onOpen={() => setEditor({ task, date: task.due_date })} />)}{overflow > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); setDetailDate(detailDate === key ? null : key); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-bold text-slate-500 hover:bg-slate-100">+{overflow} more</button>}</div>
-              {detailDate === key && <div className="absolute left-2 top-10 z-30 w-64 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold text-slate-900">{format(day, "EEEE, MMM d")}</p><button type="button" onClick={() => setDetailDate(null)} aria-label="Close day details"><X className="h-4 w-4 text-slate-400" /></button></div><div className="max-h-56 space-y-1 overflow-y-auto">{dayTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => { setDetailDate(null); setEditor({ task, date: task.due_date }); }} />)}</div></div>}
+              <div className="space-y-1">{dayTasks.slice(0, visibleLimit).map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} />)}{overflow > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); setDetailDate(detailDate === key ? null : key); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-bold text-slate-500 hover:bg-slate-100">+{overflow} more</button>}</div>
+              {detailDate === key && <div className="absolute left-2 top-10 z-30 w-64 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold text-slate-900">{format(day, "EEEE, MMM d")}</p><button type="button" onClick={() => setDetailDate(null)} aria-label="Close day details"><X className="h-4 w-4 text-slate-400" /></button></div><div className="max-h-56 space-y-1 overflow-y-auto">{dayTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => { setDetailDate(null); setDetailsTask(task); }} />)}</div></div>}
             </div>;
           })}</div>
         </div>
       </div>
       <div className="border-t border-slate-200 bg-slate-50/70">
         <button type="button" onClick={() => setUnscheduledOpen((open) => !open)} className="flex w-full items-center justify-between px-4 py-3 text-left sm:px-6"><span className="flex items-center gap-2 text-sm font-bold text-slate-700"><Clock3 className="h-4 w-4 text-slate-400" />Unscheduled <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">{unscheduled.length}</span></span>{unscheduledOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}</button>
-        {unscheduledOpen && <div className="border-t border-slate-200 px-4 py-3 sm:px-6">{unscheduled.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{unscheduled.map((task) => <TaskChip key={task.id} task={task} onOpen={() => setEditor({ task, date: null })} />)}</div> : <p className="text-sm text-slate-500">Everything has a date. Tasks without one will stay safely visible here.</p>}</div>}
+        {unscheduledOpen && <div className="border-t border-slate-200 px-4 py-3 sm:px-6">{unscheduled.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{unscheduled.map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} />)}</div> : <p className="text-sm text-slate-500">Everything has a date. Tasks without one will stay safely visible here.</p>}</div>}
       </div>
+      {detailsTask && <TaskDetailsModal task={detailsTask} onClose={() => setDetailsTask(null)} onEdit={() => { setDetailsTask(null); setEditor({ task: detailsTask, date: detailsTask.due_date }); }} />}
       {editor && <TaskEditorModal state={editor} scopeCategory={scopeCategory} seriesCount={editor.task?.series_id ? activeTasks.filter((task) => task.series_id === editor.task?.series_id).length : 0} onClose={() => setEditor(null)} onSave={saveTask} onDelete={removeTask} />}
     </section>
   );

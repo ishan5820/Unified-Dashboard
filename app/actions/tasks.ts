@@ -12,6 +12,7 @@ import {
   isWeekday,
   type NewTask,
   type RecurrenceSpec,
+  type Subtask,
   type Task,
   type TaskUpdate,
   type Weekday,
@@ -42,6 +43,33 @@ function cleanDate(value: unknown): string | null {
   return typeof value === "string" && isCalendarDate(value) ? value : null;
 }
 
+function sanitizeSubtasks(value: unknown): Subtask[] | string {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return "Subtasks must be a list.";
+  if (value.length > 50) return "A task can contain at most 50 subtasks.";
+  const now = new Date().toISOString();
+  const rows: Subtask[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return "A subtask is invalid.";
+    const input = item as Record<string, unknown>;
+    const title = cleanText(input.title, false);
+    if (!title) return "Every subtask needs a title.";
+    if (title.length > 180) return "Subtask titles must be 180 characters or fewer.";
+    const id = typeof input.id === "string" && /^[0-9a-f-]{36}$/i.test(input.id)
+      ? input.id
+      : randomUUID();
+    rows.push({
+      id,
+      title,
+      is_completed: Boolean(input.is_completed),
+      created_at: typeof input.created_at === "string" && !Number.isNaN(Date.parse(input.created_at))
+        ? input.created_at
+        : now,
+    });
+  }
+  return rows;
+}
+
 function sanitizeNewTask(value: unknown): NewTask | string {
   if (!value || typeof value !== "object") return "Task data is required.";
   const input = value as Record<string, unknown>;
@@ -57,12 +85,16 @@ function sanitizeNewTask(value: unknown): NewTask | string {
   if (input.due_date && !dueDate) return "Due date must be YYYY-MM-DD.";
   const isCompleted = Boolean(input.is_completed);
   if (kind === "event" && isCompleted) return "Events cannot be completed.";
+  const subtasks = sanitizeSubtasks(input.subtasks);
+  if (typeof subtasks === "string") return subtasks;
+  if (kind === "event" && subtasks.length) return "Events cannot contain subtasks.";
   return {
     canvas_uid: cleanText(input.canvas_uid),
     title,
     description: cleanText(input.description),
     due_date: dueDate,
     due_time: cleanText(input.due_time),
+    location: cleanText(input.location),
     category,
     course_code: cleanText(input.course_code)?.toUpperCase() ?? null,
     is_pinned: Boolean(input.is_pinned),
@@ -74,6 +106,7 @@ function sanitizeNewTask(value: unknown): NewTask | string {
     recurrence_rule: cleanText(input.recurrence_rule),
     series_until: cleanDate(input.series_until),
     import_batch_id: cleanText(input.import_batch_id),
+    subtasks,
   };
 }
 
@@ -83,8 +116,9 @@ function sanitizePatch(value: unknown, existing: Task): TaskUpdate | string {
   const merged = sanitizeNewTask({ ...existing, ...input });
   if (typeof merged === "string") return merged;
   const allowed = new Set<keyof NewTask>([
-    "title", "description", "due_date", "due_time", "category", "course_code", "is_pinned",
+    "title", "description", "due_date", "due_time", "location", "category", "course_code", "is_pinned",
     "is_completed", "source", "kind", "end_time", "series_id", "recurrence_rule", "series_until",
+    "subtasks",
   ]);
   return Object.fromEntries(Object.keys(input).filter((key) => allowed.has(key as keyof NewTask)).map((key) => [key, merged[key as keyof NewTask]])) as TaskUpdate;
 }
@@ -138,6 +172,45 @@ export async function toggleComplete(id: string, completed: boolean): Promise<Ta
 
 export async function togglePin(id: string, pinned: boolean): Promise<TaskActionResult> {
   return updateTask(id, { is_pinned: Boolean(pinned) });
+}
+
+export async function addSubtask(taskId: string, titleInput: string): Promise<TaskActionResult> {
+  try {
+    const existing = await getTask(taskId);
+    if (!existing) return { ok: false, error: "Task not found." };
+    if (existing.kind !== "task") return { ok: false, error: "Only tasks can contain subtasks." };
+    const title = cleanText(titleInput, false);
+    if (!title) return { ok: false, error: "Enter a subtask title." };
+    if (title.length > 180) return { ok: false, error: "Subtask titles must be 180 characters or fewer." };
+    if (existing.subtasks.length >= 50) return { ok: false, error: "This task already has 50 subtasks." };
+    return updateTask(taskId, {
+      subtasks: [...existing.subtasks, {
+        id: randomUUID(), title, is_completed: false, created_at: new Date().toISOString(),
+      }],
+    });
+  } catch { return { ok: false, error: "Could not add the subtask." }; }
+}
+
+export async function toggleSubtask(taskId: string, subtaskId: string, completed: boolean): Promise<TaskActionResult> {
+  try {
+    const existing = await getTask(taskId);
+    if (!existing) return { ok: false, error: "Task not found." };
+    if (!existing.subtasks.some((subtask) => subtask.id === subtaskId)) return { ok: false, error: "Subtask not found." };
+    return updateTask(taskId, {
+      subtasks: existing.subtasks.map((subtask) => subtask.id === subtaskId
+        ? { ...subtask, is_completed: Boolean(completed) }
+        : subtask),
+    });
+  } catch { return { ok: false, error: "Could not update the subtask." }; }
+}
+
+export async function deleteSubtask(taskId: string, subtaskId: string): Promise<TaskActionResult> {
+  try {
+    const existing = await getTask(taskId);
+    if (!existing) return { ok: false, error: "Task not found." };
+    if (!existing.subtasks.some((subtask) => subtask.id === subtaskId)) return { ok: false, error: "Subtask not found." };
+    return updateTask(taskId, { subtasks: existing.subtasks.filter((subtask) => subtask.id !== subtaskId) });
+  } catch { return { ok: false, error: "Could not delete the subtask." }; }
 }
 
 export async function deleteTask(id: string): Promise<TaskActionResult> {

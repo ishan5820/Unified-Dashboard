@@ -25,9 +25,10 @@ export function expandSeries(spec: RecurrenceSpec, seriesId: string): NewTask[] 
     results.push({
       canvas_uid: null,
       title: spec.title,
-      description: null,
+      description: spec.description ?? null,
       due_date: date,
       due_time: spec.startTime,
+      location: spec.location ?? null,
       category: spec.category,
       course_code: spec.courseCode,
       is_pinned: false,

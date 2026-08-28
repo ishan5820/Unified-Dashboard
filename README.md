@@ -2,6 +2,13 @@
 
 A single-tenant organizer for coursework, extracurricular commitments, and social plans. The app uses Next.js 16, React 19.2, Tailwind CSS 4, Supabase, and TypeScript.
 
+## Organizer features
+
+- Expandable subtasks with independent completion and progress counts.
+- Read-first calendar details for dates, times, locations, notes, and checklist progress.
+- Classes-only syllabus import from pasted text or a selectable-text PDF, with an editable duplicate-aware preview.
+- JSON backup export and restore, Canvas calendar review, and recurring semester events.
+
 ## Requirements
 
 - Node.js 22 or newer (`node-ical` requires Node 22+)

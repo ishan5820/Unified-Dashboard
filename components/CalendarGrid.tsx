@@ -6,8 +6,8 @@ import {
   addDays, addMonths, addWeeks, eachDayOfInterval, endOfWeek, format, isSameDay,
   isSameMonth, startOfMonth, startOfWeek, subMonths, subWeeks,
 } from "date-fns";
-import { AlignLeft, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, MapPin, Pencil, Pin, Trash2, X } from "lucide-react";
-import { createTask, deleteSeries, deleteTask, updateSeries, updateTask, type TaskDraft } from "@/app/actions/tasks";
+import { AlignLeft, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, ListChecks, MapPin, Pencil, Pin, Plus, Trash2, X } from "lucide-react";
+import { addSubtask, createTask, deleteSeries, deleteSubtask, deleteTask, toggleComplete, toggleSubtask, updateSeries, updateTask, type TaskDraft } from "@/app/actions/tasks";
 import { CATEGORY_ORDER, CATEGORY_STYLES } from "@/lib/categories";
 import { formatTimeRange, fromTimeInputValue, toLocalDateString, toTimeInputValue } from "@/lib/datetime";
 import type { Task, TaskCategory, TaskUpdate } from "@/types/task";
@@ -55,11 +55,32 @@ function TaskChip({ task, onOpen }: { task: Task; onOpen: () => void }) {
   );
 }
 
-function TaskDetailsModal({ task, onClose, onEdit }: { task: Task; onClose: () => void; onEdit: () => void }) {
+function TaskDetailsModal({ task, onClose, onEdit, onTaskChange }: { task: Task; onClose: () => void; onEdit: () => void; onTaskChange: (task: Task) => void }) {
   const style = CATEGORY_STYLES[task.category];
   const dateLabel = task.due_date ? format(parseCalendarDate(task.due_date), "EEEE, MMMM d, yyyy") : "No date";
   const timeLabel = task.kind === "event" ? formatTimeRange(task.due_time, task.end_time) : task.due_time;
   const completedSubtasks = task.subtasks.filter((subtask) => subtask.is_completed).length;
+  const [subtaskTitle, setSubtaskTitle] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const runMutation = async (busyKey: string, action: () => ReturnType<typeof updateTask>) => {
+    setBusyId(busyKey);
+    setError(null);
+    const result = await action();
+    setBusyId(null);
+    if (!result.ok) { setError(result.error); return false; }
+    onTaskChange(result.task);
+    return true;
+  };
+
+  const submitSubtask = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const title = subtaskTitle.trim();
+    if (!title) return;
+    const saved = await runMutation("new-subtask", () => addSubtask(task.id, title));
+    if (saved) setSubtaskTitle("");
+  };
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -75,11 +96,13 @@ function TaskDetailsModal({ task, onClose, onEdit }: { task: Task; onClose: () =
       <div role="dialog" aria-modal="true" aria-labelledby="task-details-title" className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-5 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${style.soft}`}>{CATEGORY_STYLES[task.category].label}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold capitalize text-slate-500">{task.kind}</span>{task.is_pinned && <Pin className="h-4 w-4 fill-amber-500 text-amber-500" />}</div><h2 id="task-details-title" className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{task.title}</h2>{task.course_code && <p className="mt-1 text-sm font-bold text-slate-500">{task.course_code}</p>}</div><div className="flex shrink-0 items-center gap-1"><button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white"><Pencil className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={onClose} aria-label="Close details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div></header>
         <div className="mt-6 space-y-3">
+          {task.kind === "task" && <button type="button" disabled={busyId !== null} onClick={() => void runMutation("complete", () => toggleComplete(task.id, !task.is_completed))} className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition disabled:opacity-50 ${task.is_completed ? "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}><Check className="h-4 w-4" />{busyId === "complete" ? "Saving…" : task.is_completed ? "Reopen task" : "Mark task completed"}</button>}
           <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><CalendarDays className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Date</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{dateLabel}</p></div></div>
           <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><Clock3 className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Time</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{timeLabel || "No time"}</p></div></div>
           {task.kind === "event" && <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><MapPin className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Location</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{task.location || "No location added"}</p></div></div>}
           <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><AlignLeft className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Notes</p><p className="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-slate-700">{task.description || "No notes added"}</p></div></div>
-          {task.kind === "task" && task.subtasks.length > 0 && <div className="rounded-2xl border border-slate-200 p-3"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Subtasks · {completedSubtasks}/{task.subtasks.length}</p><ul className="mt-2 space-y-2">{task.subtasks.map((subtask) => <li key={subtask.id} className={`flex items-center gap-2 text-sm ${subtask.is_completed ? "text-slate-400 line-through" : "text-slate-700"}`}><span className={`h-2 w-2 rounded-full ${subtask.is_completed ? "bg-emerald-500" : "bg-slate-300"}`} />{subtask.title}</li>)}</ul></div>}
+          {task.kind === "task" && <section className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-slate-400" /><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Subtasks</p></div><span className="text-xs font-bold text-slate-400">{completedSubtasks}/{task.subtasks.length}</span></div><p className="mt-2 text-xs leading-5 text-slate-500">Break this task into smaller steps and check each one off here.</p>{task.subtasks.length > 0 && <ul className="mt-3 space-y-1">{task.subtasks.map((subtask) => <li key={subtask.id} className="flex items-center gap-2 rounded-xl px-1 py-1.5 hover:bg-slate-50"><button type="button" disabled={busyId !== null} onClick={() => void runMutation(subtask.id, () => toggleSubtask(task.id, subtask.id, !subtask.is_completed))} aria-label={`${subtask.is_completed ? "Reopen" : "Complete"} subtask ${subtask.title}`} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${subtask.is_completed ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white text-transparent"} disabled:opacity-50`}><Check className="h-3.5 w-3.5" /></button><span className={`min-w-0 flex-1 text-sm ${subtask.is_completed ? "text-slate-400 line-through" : "text-slate-700"}`}>{subtask.title}</span><button type="button" disabled={busyId !== null} onClick={() => void runMutation(`delete-${subtask.id}`, () => deleteSubtask(task.id, subtask.id))} aria-label={`Delete subtask ${subtask.title}`} className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /></button></li>)}</ul>}<form onSubmit={submitSubtask} className="mt-3 flex gap-2"><input value={subtaskTitle} onChange={(event) => setSubtaskTitle(event.target.value)} maxLength={180} placeholder="Add a subtask…" aria-label={`New subtask for ${task.title}`} className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-500" /><button type="submit" disabled={busyId !== null || !subtaskTitle.trim()} className="inline-flex items-center gap-1 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"><Plus className="h-3.5 w-3.5" />{busyId === "new-subtask" ? "Adding…" : "Add"}</button></form></section>}
+          {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{error}</p>}
         </div>
       </div>
     </div>
@@ -270,7 +293,7 @@ export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultVi
         <button type="button" onClick={() => setUnscheduledOpen((open) => !open)} className="flex w-full items-center justify-between px-4 py-3 text-left sm:px-6"><span className="flex items-center gap-2 text-sm font-bold text-slate-700"><Clock3 className="h-4 w-4 text-slate-400" />Unscheduled <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">{unscheduled.length}</span></span>{unscheduledOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}</button>
         {unscheduledOpen && <div className="border-t border-slate-200 px-4 py-3 sm:px-6">{unscheduled.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{unscheduled.map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} />)}</div> : <p className="text-sm text-slate-500">Everything has a date. Tasks without one will stay safely visible here.</p>}</div>}
       </div>
-      {detailsTask && <TaskDetailsModal task={detailsTask} onClose={() => setDetailsTask(null)} onEdit={() => { setDetailsTask(null); setEditor({ task: detailsTask, date: detailsTask.due_date }); }} />}
+      {detailsTask && <TaskDetailsModal task={detailsTask} onClose={() => setDetailsTask(null)} onEdit={() => { setDetailsTask(null); setEditor({ task: detailsTask, date: detailsTask.due_date }); }} onTaskChange={(changed) => { replaceTasks(activeTasks.map((task) => task.id === changed.id ? changed : task)); setDetailsTask(changed); router.refresh(); }} />}
       {editor && <TaskEditorModal state={editor} scopeCategory={scopeCategory} seriesCount={editor.task?.series_id ? activeTasks.filter((task) => task.series_id === editor.task?.series_id).length : 0} onClose={() => setEditor(null)} onSave={saveTask} onDelete={removeTask} />}
     </section>
   );

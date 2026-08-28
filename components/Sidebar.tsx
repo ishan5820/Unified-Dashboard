@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, CalendarPlus, Download, GraduationCap, Heart, LayoutDashboard, RefreshCw, Users } from "lucide-react";
+import { CalendarDays, CalendarPlus, Download, GraduationCap, Heart, LayoutDashboard, RefreshCw, Trophy, Users } from "lucide-react";
 import { getAllTasks } from "@/app/actions/tasks";
 import { CATEGORY_STYLES } from "@/lib/categories";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
@@ -47,9 +47,10 @@ export function Sidebar() {
         </Link>
         <nav className="mt-8 space-y-1" aria-label="Primary navigation">
           {items.map(({ href, label, icon: Icon, dot }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+            const active = href === "/" ? pathname === "/" : href === "/social" ? pathname === "/social" : pathname.startsWith(href);
             return <Link key={href} href={href} aria-current={active ? "page" : undefined} className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}><Icon className="h-[18px] w-[18px]" /><span className="flex-1">{label}</span>{dot && <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />}</Link>;
           })}
+          <Link href="/social/sports" aria-current={pathname === "/social/sports" ? "page" : undefined} className={`ml-5 flex items-center gap-2.5 rounded-xl border-l-2 px-3 py-2 text-xs font-bold transition ${pathname === "/social/sports" ? "border-indigo-500 bg-indigo-50 text-indigo-950" : "border-slate-200 text-slate-500 hover:border-indigo-300 hover:bg-slate-100 hover:text-slate-900"}`}><Trophy className="h-4 w-4" />Sporting Events</Link>
         </nav>
         <div className="mt-auto space-y-3 rounded-2xl bg-slate-50 p-3">
           <button type="button" onClick={() => setRecurringOpen(true)} className="flex w-full items-center gap-3 rounded-xl bg-slate-950 px-3 py-3 text-left text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10"><CalendarPlus className="h-4 w-4" /></span><span><span className="block">Add recurring</span><span className="block text-xs font-normal text-slate-300">Build a semester routine</span></span></button>
@@ -62,11 +63,12 @@ export function Sidebar() {
         </div>
       </aside>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-slate-200 bg-white/95 px-1 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1.5 backdrop-blur md:hidden" aria-label="Mobile navigation">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-8 border-t border-slate-200 bg-white/95 px-1 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1.5 backdrop-blur md:hidden" aria-label="Mobile navigation">
         {items.map(({ href, label, icon: Icon, dot }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+          const active = href === "/" ? pathname === "/" : href === "/social" ? pathname === "/social" : pathname.startsWith(href);
           return <Link key={href} href={href} aria-current={active ? "page" : undefined} className={`relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold ${active ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}><span className="relative"><Icon className="h-5 w-5" />{dot && <span className={`absolute -right-1 -top-0.5 h-2 w-2 rounded-full ring-2 ring-white ${dot}`} />}</span>{label}</Link>;
         })}
+        <Link href="/social/sports" aria-current={pathname === "/social/sports" ? "page" : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold ${pathname === "/social/sports" ? "bg-indigo-50 text-indigo-950" : "text-indigo-600"}`}><Trophy className="h-5 w-5" />Sports</Link>
         <button type="button" onClick={() => setRecurringOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold text-indigo-600"><CalendarPlus className="h-5 w-5" />Recurring</button>
         <button type="button" onClick={() => void exportData()} disabled={exportBusy} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold text-indigo-700 disabled:opacity-50"><Download className="h-5 w-5" />Export</button>
         <button type="button" onClick={() => setSyncOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold text-orange-600"><RefreshCw className="h-5 w-5" />Sync</button>

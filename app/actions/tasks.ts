@@ -29,7 +29,7 @@ export type TaskListActionResult =
   | { ok: false; error: string };
 
 function revalidateTaskPages(): void {
-  for (const path of ["/", "/classes", "/orgs", "/social"]) revalidatePath(path);
+  for (const path of ["/", "/classes", "/orgs", "/social", "/social/sports"]) revalidatePath(path);
 }
 
 function cleanText(value: unknown, nullable = true): string | null {

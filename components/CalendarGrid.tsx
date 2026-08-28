@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
   addDays, addMonths, addWeeks, eachDayOfInterval, endOfWeek, format, isSameDay,
   isSameMonth, startOfMonth, startOfWeek, subMonths, subWeeks,
@@ -9,8 +10,8 @@ import {
 import { AlignLeft, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, ListChecks, MapPin, Pencil, Pin, Plus, Trash2, X } from "lucide-react";
 import { addSubtask, createTask, deleteSeries, deleteSubtask, deleteTask, toggleComplete, toggleSubtask, updateSeries, updateTask, type TaskDraft } from "@/app/actions/tasks";
 import { CATEGORY_ORDER, CATEGORY_STYLES } from "@/lib/categories";
-import { formatTimeRange, fromTimeInputValue, toLocalDateString, toTimeInputValue } from "@/lib/datetime";
-import type { Task, TaskCategory, TaskUpdate } from "@/types/task";
+import { compareTimes, formatTimeRange, fromTimeInputValue, toLocalDateString, toTimeInputValue } from "@/lib/datetime";
+import type { Task, TaskCategory, TaskKind, TaskUpdate } from "@/types/task";
 
 export interface CalendarGridProps {
   tasks: Task[];
@@ -33,9 +34,11 @@ function calendarKey(value: Date): string {
 
 function sortDayTasks(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
+    const time = compareTimes(a.due_time, b.due_time);
+    if (time !== 0) return time;
     if (a.kind !== b.kind) return a.kind === "task" ? -1 : 1;
     if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
-    return (a.due_time ?? "99:99").localeCompare(b.due_time ?? "99:99") || a.title.localeCompare(b.title);
+    return a.title.localeCompare(b.title);
   });
 }
 
@@ -91,7 +94,7 @@ function TaskDetailsModal({ task, onClose, onEdit, onTaskChange }: { task: Task;
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [onClose]);
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="task-details-title" className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-5 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${style.soft}`}>{CATEGORY_STYLES[task.category].label}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold capitalize text-slate-500">{task.kind}</span>{task.is_pinned && <Pin className="h-4 w-4 fill-amber-500 text-amber-500" />}</div><h2 id="task-details-title" className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{task.title}</h2>{task.course_code && <p className="mt-1 text-sm font-bold text-slate-500">{task.course_code}</p>}</div><div className="flex shrink-0 items-center gap-1"><button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white"><Pencil className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={onClose} aria-label="Close details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div></header>
@@ -106,7 +109,7 @@ function TaskDetailsModal({ task, onClose, onEdit, onTaskChange }: { task: Task;
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, onSave, onDelete }: {
@@ -121,6 +124,8 @@ export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, on
   const [title, setTitle] = useState(existing?.title ?? "");
   const [date, setDate] = useState(existing?.due_date ?? state.date ?? "");
   const [time, setTime] = useState(toTimeInputValue(existing?.due_time ?? null));
+  const [endTime, setEndTime] = useState(toTimeInputValue(existing?.end_time ?? null));
+  const [kind, setKind] = useState<TaskKind>(existing?.kind ?? "task");
   const [category, setCategory] = useState<TaskCategory>(scopeCategory ?? existing?.category ?? "classes");
   const [pinned, setPinned] = useState(existing?.is_pinned ?? false);
   const [completed, setCompleted] = useState(existing?.is_completed ?? false);
@@ -139,11 +144,11 @@ export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, on
     const result = await onSave({
       title: title.trim(), description: description.trim() || null, due_date: date || null,
       due_time: fromTimeInputValue(time), category: scopeCategory ?? category,
-      location: location.trim() || null,
+      location: kind === "event" ? location.trim() || null : null,
       course_code: existing?.course_code ?? null, is_pinned: pinned,
-      is_completed: existing?.kind === "event" ? false : completed,
-      source: existing?.source ?? "manual", kind: existing?.kind ?? "task",
-      canvas_uid: existing?.canvas_uid ?? null, end_time: existing?.end_time ?? null,
+      is_completed: kind === "event" ? false : completed,
+      source: existing?.source ?? "manual", kind,
+      canvas_uid: existing?.canvas_uid ?? null, end_time: kind === "event" ? fromTimeInputValue(endTime) : null,
       series_id: existing?.series_id ?? null, recurrence_rule: existing?.recurrence_rule ?? null,
       series_until: existing?.series_until ?? null, import_batch_id: existing?.import_batch_id ?? null,
     }, scope);
@@ -158,27 +163,28 @@ export function TaskEditorModal({ state, scopeCategory, seriesCount, onClose, on
     if (result) { setError(result); setConfirmDelete(false); } else onClose();
   };
 
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="task-editor-title" className="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
-        <div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{existing ? "Quick edit" : "New calendar task"}</p><h2 id="task-editor-title" className="mt-1 text-xl font-bold text-slate-950">{existing ? existing.title : "Add something due"}</h2></div><button type="button" onClick={onClose} disabled={busy} aria-label="Close task editor" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+      <div role="dialog" aria-modal="true" aria-labelledby="task-editor-title" className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+        <div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{existing ? "Quick edit" : "New calendar item"}</p><h2 id="task-editor-title" className="mt-1 text-xl font-bold text-slate-950">{existing ? existing.title : "Add something to the calendar"}</h2></div><button type="button" onClick={onClose} disabled={busy} aria-label="Close task editor" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
         <form onSubmit={submit} className="mt-5 space-y-4">
+          {!existing && <fieldset><legend className="text-sm font-semibold text-slate-700">Display style</legend><div className="mt-2 grid grid-cols-2 gap-2">{(["task", "event"] as const).map((value) => <button key={value} type="button" onClick={() => setKind(value)} aria-pressed={kind === value} className={`rounded-xl border p-3 text-left transition ${kind === value ? "border-slate-950 bg-slate-50 ring-1 ring-slate-950" : "border-slate-200 bg-white"}`}><span className={`block h-6 rounded-md ${value === "task" ? CATEGORY_STYLES[scopeCategory ?? category].chip : `${CATEGORY_STYLES[scopeCategory ?? category].soft} border-l-4 ${CATEGORY_STYLES[scopeCategory ?? category].border}`}`} /><span className="mt-2 block text-sm font-bold capitalize text-slate-900">{value}</span><span className="mt-0.5 block text-xs text-slate-500">{value === "task" ? "Solid color · can be completed" : "Light card · colored left edge"}</span></button>)}</div></fieldset>}
           <label className="block"><span className="text-sm font-semibold text-slate-700">Title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100" /></label>
-          <div className="grid grid-cols-2 gap-3"><label><span className="text-sm font-semibold text-slate-700">Date</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label><label><span className="text-sm font-semibold text-slate-700">Time</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label></div>
-          {existing?.kind === "event" && <label className="block"><span className="text-sm font-semibold text-slate-700">Location</span><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Room, building, or link" className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label>}
+          <div className={`grid gap-3 ${kind === "event" ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"}`}><label className={kind === "event" ? "col-span-2 sm:col-span-1" : ""}><span className="text-sm font-semibold text-slate-700">Date</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label><label><span className="text-sm font-semibold text-slate-700">{kind === "event" ? "Starts" : "Time"}</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label>{kind === "event" && <label><span className="text-sm font-semibold text-slate-700">Ends</span><input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label>}</div>
+          {kind === "event" && <label className="block"><span className="text-sm font-semibold text-slate-700">Location</span><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Room, building, or link" className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></label>}
           <label className="block"><span className="text-sm font-semibold text-slate-700">Notes</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Add details or preparation notes" className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 px-3 py-2.5 text-sm leading-6" /></label>
           <div><span className="text-sm font-semibold text-slate-700">Category</span>{scopeCategory ? <div className={`mt-1.5 inline-flex rounded-full px-3 py-1.5 text-sm font-semibold ${CATEGORY_STYLES[scopeCategory].soft}`}>{CATEGORY_STYLES[scopeCategory].label}</div> : <select value={category} onChange={(event) => setCategory(event.target.value as TaskCategory)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{CATEGORY_ORDER.map((item) => <option key={item} value={item}>{CATEGORY_STYLES[item].label}</option>)}</select>}</div>
-          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setPinned((value) => !value)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}><Pin className={`h-4 w-4 ${pinned ? "fill-current" : ""}`} />Pinned</button>{existing?.kind !== "event" && <button type="button" onClick={() => setCompleted((value) => !value)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${completed ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-600"}`}><Check className="h-4 w-4" />Completed</button>}</div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setPinned((value) => !value)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}><Pin className={`h-4 w-4 ${pinned ? "fill-current" : ""}`} />Pinned</button>{kind !== "event" && <button type="button" onClick={() => setCompleted((value) => !value)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${completed ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-600"}`}><Check className="h-4 w-4" />Completed</button>}</div>
           {isSeries && <fieldset className="rounded-2xl border border-violet-200 bg-violet-50 p-3"><legend className="px-1 text-sm font-bold text-violet-950">Apply to</legend><div className="mt-2 grid grid-cols-2 gap-2">{(["one", "all"] as const).map((value) => <label key={value} className={`cursor-pointer rounded-xl border p-3 text-sm ${scope === value ? "border-violet-500 bg-white font-semibold text-violet-950" : "border-transparent text-violet-700"}`}><input type="radio" name="series-scope" value={value} checked={scope === value} onChange={() => setScope(value)} className="mr-2 accent-violet-600" />{value === "one" ? "This occurrence" : `All ${seriesCount} occurrences`}</label>)}</div><p className="mt-2 text-xs text-violet-700">Editing one occurrence detaches it from future series updates.</p></fieldset>}
           {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{error}</p>}
           <div className="flex items-center justify-between border-t border-slate-100 pt-4">
             {existing ? (!confirmDelete ? <button type="button" onClick={() => setConfirmDelete(true)} disabled={busy} className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" />Delete</button> : <div className="flex items-center gap-2 text-sm"><span className="font-semibold text-rose-700">Delete {isSeries && scope === "all" ? `${seriesCount} occurrences` : "this item"}?</span><button type="button" onClick={() => void remove()} className="rounded-lg bg-rose-600 px-2.5 py-1.5 font-semibold text-white">Yes</button><button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg px-2 py-1.5 text-slate-500">No</button></div>) : <span />}
-            <button type="submit" disabled={busy || !title.trim()} className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-45">{busy ? "Saving…" : existing && isSeries && scope === "all" ? `Update ${seriesCount} occurrences` : existing ? "Save changes" : "Add task"}</button>
+            <button type="submit" disabled={busy || !title.trim()} className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-45">{busy ? "Saving…" : existing && isSeries && scope === "all" ? `Update ${seriesCount} occurrences` : existing ? "Save changes" : kind === "event" ? "Add event" : "Add task"}</button>
           </div>
         </form>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultView, onTasksChange }: CalendarGridProps) {
@@ -220,7 +226,7 @@ export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultVi
     const end = view === "month" ? addDays(start, 41) : endOfWeek(start, { weekStartsOn: 0 });
     return eachDayOfInterval({ start, end });
   }, [anchor, view]);
-  const visibleLimit = variant === "compact" ? 2 : 3;
+  const monthVisibleLimit = variant === "compact" ? 2 : 3;
 
   const navigate = (direction: -1 | 1) => setAnchor((current) => view === "month" ? (direction < 0 ? subMonths(current, 1) : addMonths(current, 1)) : (direction < 0 ? subWeeks(current, 1) : addWeeks(current, 1)));
 
@@ -279,11 +285,13 @@ export function CalendarGrid({ tasks, scopeCategory, variant = "full", defaultVi
         <div className="min-w-[700px]">
           <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400">{day}</div>)}</div>
           <div className="grid grid-cols-7">{days.map((day) => {
-            const key = calendarKey(day); const dayTasks = byDate.get(key) ?? []; const overflow = dayTasks.length - visibleLimit;
+            const key = calendarKey(day); const dayTasks = byDate.get(key) ?? [];
+            const visibleTasks = view === "week" ? dayTasks : dayTasks.slice(0, monthVisibleLimit);
+            const overflow = view === "month" ? Math.max(0, dayTasks.length - monthVisibleLimit) : 0;
             const currentMonth = view === "week" || isSameMonth(day, anchor); const today = isSameDay(day, parseCalendarDate(todayKey));
-            return <div key={key} role="button" tabIndex={0} aria-label={`Add task on ${format(day, "MMMM d, yyyy")}`} onClick={() => setEditor({ task: null, date: key })} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditor({ task: null, date: key }); } }} className={`relative min-h-28 border-b border-r border-slate-100 p-1.5 text-left focus:z-10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-slate-900 ${variant === "compact" ? "min-h-24" : "sm:min-h-32"} ${currentMonth ? "bg-white" : "bg-slate-50/70"}`}>
+            return <div key={key} role="button" tabIndex={0} aria-label={`Add task on ${format(day, "MMMM d, yyyy")}`} onClick={() => setEditor({ task: null, date: key })} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditor({ task: null, date: key }); } }} className={`relative border-b border-r border-slate-100 p-1.5 text-left focus:z-10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-slate-900 ${view === "week" ? "min-h-64 sm:min-h-80" : variant === "compact" ? "min-h-24" : "min-h-28 sm:min-h-32"} ${currentMonth ? "bg-white" : "bg-slate-50/70"}`}>
               <div className="mb-1 flex items-center justify-between"><span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-xs font-bold ${today ? "bg-slate-950 text-white ring-4 ring-slate-200" : currentMonth ? "text-slate-700" : "text-slate-300"}`}>{format(day, "d")}</span>{dayTasks.length === 0 && <CalendarPlus className="h-3.5 w-3.5 text-slate-200" />}</div>
-              <div className="space-y-1">{dayTasks.slice(0, visibleLimit).map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} />)}{overflow > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); setDetailDate(detailDate === key ? null : key); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-bold text-slate-500 hover:bg-slate-100">+{overflow} more</button>}</div>
+              <div className="space-y-1">{visibleTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => setDetailsTask(task)} />)}{overflow > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); setDetailDate(detailDate === key ? null : key); }} className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-bold text-slate-500 hover:bg-slate-100">+{overflow} more</button>}</div>
               {detailDate === key && <div className="absolute left-2 top-10 z-30 w-64 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold text-slate-900">{format(day, "EEEE, MMM d")}</p><button type="button" onClick={() => setDetailDate(null)} aria-label="Close day details"><X className="h-4 w-4 text-slate-400" /></button></div><div className="max-h-56 space-y-1 overflow-y-auto">{dayTasks.map((task) => <TaskChip key={task.id} task={task} onOpen={() => { setDetailDate(null); setDetailsTask(task); }} />)}</div></div>}
             </div>;
           })}</div>

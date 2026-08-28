@@ -44,6 +44,27 @@ export function formatTimeRange(start: string | null, end: string | null): strin
     : `${start} – ${end}`;
 }
 
+export function timeSortValue(value: string | null): number {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const twelveHour = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (twelveHour) {
+    let hour = Number(twelveHour[1]) % 12;
+    if (twelveHour[3].toUpperCase() === "PM") hour += 12;
+    return hour * 60 + Number(twelveHour[2]);
+  }
+  const twentyFourHour = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (twentyFourHour) return Number(twentyFourHour[1]) * 60 + Number(twentyFourHour[2]);
+  return Number.POSITIVE_INFINITY;
+}
+
+export function compareTimes(left: string | null, right: string | null): number {
+  const leftValue = timeSortValue(left);
+  const rightValue = timeSortValue(right);
+
+  if (leftValue === rightValue) return 0;
+  return leftValue < rightValue ? -1 : 1;
+}
+
 export function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);

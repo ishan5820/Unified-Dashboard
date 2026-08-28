@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   addDays, addMonths, addWeeks, eachDayOfInterval, endOfWeek, format, isSameDay,
@@ -60,10 +60,20 @@ function TaskDetailsModal({ task, onClose, onEdit }: { task: Task; onClose: () =
   const dateLabel = task.due_date ? format(parseCalendarDate(task.due_date), "EEEE, MMMM d, yyyy") : "No date";
   const timeLabel = task.kind === "event" ? formatTimeRange(task.due_time, task.end_time) : task.due_time;
   const completedSubtasks = task.subtasks.filter((subtask) => subtask.is_completed).length;
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="task-details-title" className="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
-        <header className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${style.soft}`}>{CATEGORY_STYLES[task.category].label}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold capitalize text-slate-500">{task.kind}</span>{task.is_pinned && <Pin className="h-4 w-4 fill-amber-500 text-amber-500" />}</div><h2 id="task-details-title" className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{task.title}</h2>{task.course_code && <p className="mt-1 text-sm font-bold text-slate-500">{task.course_code}</p>}</div><div className="flex shrink-0 items-center gap-1"><button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white"><Pencil className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={onClose} aria-label="Close details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div></header>
+      <div role="dialog" aria-modal="true" aria-labelledby="task-details-title" className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+        <header className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-5 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${style.soft}`}>{CATEGORY_STYLES[task.category].label}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold capitalize text-slate-500">{task.kind}</span>{task.is_pinned && <Pin className="h-4 w-4 fill-amber-500 text-amber-500" />}</div><h2 id="task-details-title" className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{task.title}</h2>{task.course_code && <p className="mt-1 text-sm font-bold text-slate-500">{task.course_code}</p>}</div><div className="flex shrink-0 items-center gap-1"><button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white"><Pencil className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={onClose} aria-label="Close details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div></header>
         <div className="mt-6 space-y-3">
           <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><CalendarDays className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Date</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{dateLabel}</p></div></div>
           <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><Clock3 className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Time</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{timeLabel || "No time"}</p></div></div>
